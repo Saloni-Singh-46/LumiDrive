@@ -1,0 +1,365 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{array}
+\geometry{margin=1in}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\setlist{nosep,leftmargin=*}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{LumiDrive / RoadSight Research Handbook}
+\rhead{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{LumiDrive / RoadSight Research Project Handbook}\\
+\large Transition-Aware Cross-Task Consistency for Robust Multi-Task Road Perception}
+\author{Research and Implementation Reference}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This handbook consolidates the research direction, implementation, experimental protocol, paper requirements, and evidence status of the LumiDrive / RoadSight project. The project investigates whether a lightweight temporal multi-task perception model can reduce lane instability and contradictions between lane and drivable-area predictions during adverse-weather transitions. The repository contains a PyTorch prototype, synthetic sequence data, a CULane adapter, evaluation utilities, video inference, and a React demonstration dashboard. It does not yet contain trained checkpoints or verified experimental results. Consequently, numerical results in the current draft paper must be treated as placeholders until reproduced by controlled experiments.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+
+\subsection{Project identity}
+The recommended title is ``Transition-Aware Cross-Task Consistency for Robust Multi-Task Road Perception under Changing Weather Conditions.'' The practical system is named LumiDrive / RoadSight.
+
+The central question is:
+\begin{quote}
+Can lightweight temporal memory and an explicit cross-task consistency objective make lane and drivable-area predictions more stable and mutually compatible during changing visibility, without losing practical inference speed?
+\end{quote}
+
+The system takes forward-facing monocular RGB frames and predicts lane segmentation, drivable-area segmentation, and an architectural object-detection output. The current training path supervises only lane and drivable-area tasks. The browser dashboard is a separate heuristic demonstration and is not connected to the PyTorch model.
+
+\subsection{Current evidence status}
+The repository contains working model, loss, dataset, training, evaluation, and video-inference code. It does not contain datasets, trained weights, experiment logs, hardware records, statistical repeats, or verified result artifacts. The project is therefore a research prototype and implementation basis, not yet a validated research result.
+
+\section{Research Problem and Motivation}
+
+Lane markings are thin, high-frequency visual structures. They are particularly vulnerable to faded paint, shadows, glare, rain, fog, night illumination, water spray, and temporary vehicle occlusion. Drivable-area regions are lower-frequency structures and may remain plausible after lane evidence has degraded. This creates two important failure modes:
+
+\begin{enumerate}
+\item \textbf{Asynchronous task failure:} the lane head fails while the drivable-area head remains active, producing contradictory spatial outputs.
+\item \textbf{Temporal flicker:} adjacent frames produce rapidly changing masks, creating unstable geometry for downstream planning.
+\end{enumerate}
+
+Static average metrics can hide both failures. A model may achieve acceptable mean IoU while intermittently losing a lane during a transition from clear weather to rain or fog. The proposed study therefore evaluates accuracy, temporal stability, cross-task consistency, and efficiency together.
+
+\subsection{Scope}
+\textbf{Included:} monocular RGB road perception, lane segmentation, drivable-area segmentation, short temporal windows, synthetic and real sequence evaluation, cross-task metrics, video inference, and deployment measurements.
+
+\textbf{Excluded:} direct steering or braking, LiDAR or radar fusion, legal safety certification, complete autonomous driving, and claims that the system is safe in all weather or road conditions.
+
+\section{Research Gap and Literature Position}
+
+The literature already covers basic panoptic driving perception, temporal perception, cross-task relation learning, uncertainty-weighted multi-task learning, adverse-weather robustness, and transitional-weather segmentation. The project must not claim that any of these topics is individually new.
+
+The defensible gap is narrower:
+\begin{quote}
+Weather-transition-induced cross-task inconsistency in driving perception, measured with task accuracy, temporal instability, spatial contradiction, worst-condition degradation, and efficiency.
+\end{quote}
+
+The research contribution is therefore the combination of a transition-aware evaluation protocol, explicit lane/drivable consistency measurement, and a lightweight temporal stabilizer. This is a candidate gap, not a guaranteed global novelty claim.
+
+\subsection{Relevant prior work}
+\begin{longtable}{p{0.25\textwidth}p{0.66\textwidth}}
+\toprule
+\textbf{Work} & \textbf{Relevance}\
+\midrule
+YOLOP & Joint object, drivable-area, and lane perception; establishes the multi-task baseline family.\\
+SHIFT & Continuous weather and domain shifts with long driving sequences.\\
+Cross-task relation learning & Shows that explicit relations between perception tasks can improve road understanding.\\
+Advent & Temporal correlation for adverse-weather-independent road perception.\\
+UW-MTL & Uncertainty-weighted multi-task traffic-scene understanding.\\
+RMT-PPAD & Robust multi-task panoptic perception under adverse conditions.\\
+CaRS and TWFNet & Transitional-weather segmentation and weather forecasting directions.\\
+TwinMixing & Lightweight lane and drivable multi-task perception under adverse weather.\\
+\bottomrule
+\end{longtable}
+
+\subsection{Safe contribution wording}
+Use: ``We propose and evaluate a lightweight temporal multi-task framework for analyzing and reducing cross-task inconsistency during changing visibility.''
+
+Avoid: ``the first temporal lane detector,'' ``the first adverse-weather multi-task model,'' ``safe for autonomous driving,'' and unsupported claims of global novelty.
+
+\section{Research Questions and Hypotheses}
+
+\begin{description}
+\item[RQ1] Does short-term temporal memory improve lane IoU and F1 in occlusion, shadow, glare, rain, fog, and transition subsets?
+\item[RQ2] Does temporal aggregation reduce frame-to-frame lane-mask flicker?
+\item[RQ3] Does the cross-task consistency regularizer reduce predicted lane pixels outside the drivable region?
+\item[RQ4] Are improvements retained on clear and steady adverse-weather data rather than occurring only on synthetic transitions?
+\item[RQ5] Can the method maintain practical latency and throughput?
+\item[RQ6] Can confidence identify unreliable predictions and calibrate with observed correctness?
+\end{description}
+
+The primary hypothesis is that temporal context plus cross-task regularization improves transition robustness and stability compared with an otherwise identical single-frame baseline. The secondary hypothesis is that these gains can be achieved with a smaller computational cost than replacing the complete backbone with a substantially larger architecture.
+
+\section{System Architecture}
+
+The implementation is in \path{python_pipeline/models/}. The input is a sequence:
+\[
+x \in \mathbb{R}^{B \times T \times 3 \times H \times W}, \qquad T=4 \text{ by default}.
+\]
+
+\subsection{Backbone and FPN}
+The custom lightweight backbone uses convolution, batch normalization, SiLU activation, bottlenecks, and CSP-style partial feature paths. It produces:
+
+\begin{itemize}
+\item C3: 64 channels at 1/8 resolution.
+\item C4: 128 channels at 1/16 resolution.
+\item C5: 256 channels at 1/32 resolution.
+\end{itemize}
+
+The feature pyramid maps C3, C4, and C5 to P3, P4, and P5 with 128 channels. P3 is used for lane and drivable-area segmentation and temporal fusion. P4 and P5 support the object-detection heads.
+
+\subsection{ConvGRU temporal aggregation}
+For each feature frame $x_t$, the ConvGRU computes reset and update gates using convolutions over the current feature and hidden state:
+\[
+z_t, r_t = \sigma(\operatorname{Conv}([x_t,h_{t-1}])),
+\]
+\[
+\tilde{h}_t = \tanh(\operatorname{Conv}([x_t,r_t \odot h_{t-1}])),
+\]
+\[
+h_t=(1-z_t)\odot h_{t-1}+z_t\odot\tilde{h}_t.
+\]
+
+A spatial gate then combines current P3 features and the final hidden state:
+\[
+f_t=a_t\odot x_t+(1-a_t)\odot h_t.
+\]
+
+The temporal module processes the complete window from oldest to newest and returns the fused representation for the current frame.
+
+\subsection{Prediction heads}
+The lane head produces two-class full-resolution logits. The drivable-area head produces three-class full-resolution logits: background, main drivable area, and alternate drivable area. The object head is anchor-free and predicts class, regression, and objectness maps at P3, P4, and P5.
+
+\textbf{Important implementation status:} the object head is defined but is not trained because object labels and an object loss are absent.
+
+\section{Training Objective}
+
+The implemented lane objective is focal loss plus soft Dice loss:
+\[
+L_{lane}=L_{focal}+L_{Dice}.
+\]
+
+The drivable objective is cross-entropy plus Dice loss:
+\[
+L_{driv}=L_{CE}+L_{Dice}.
+\]
+
+The cross-task consistency regularizer uses the predicted lane probability and a dilated drivable probability:
+\[
+L_{CTC}=\frac{1}{|P|}\sum_{p\in P} \hat{M}_{lane}(p)\left[1-\operatorname{Dilate}(\hat{M}_{driv}(p),k)\right].
+\]
+
+The temporal flicker term compares current and previous lane probabilities:
+\[
+L_{temp}=\frac{1}{|P|}\sum_{p\in P}|\hat{M}_{t}(p)-\hat{M}_{t-1}(p)|.
+\]
+
+The implemented weighted objective is:
+\[
+L_{total}=1.5L_{lane}+1.0L_{driv}+0.6L_{CTC}+0.4L_{temp}.
+\]
+
+The current temporal comparison is not motion compensated. The paper should either add alignment using optical flow or ego-motion, or state this as a limitation and interpret the flicker result cautiously.
+
+\section{Data and Experimental Protocol}
+
+\subsection{Synthetic sequence data}
+The procedural dataset generates road scenes at 640 by 360 pixels. It supports clear, rain, fog, night glare, and a clear-to-rain transition. Each sequence contains four ordered frames. Lane and drivable masks are generated from the known synthetic geometry.
+
+The synthetic dataset is useful for pipeline validation and controlled ablations. It is not sufficient evidence for real-world weather robustness.
+
+\subsection{CULane adapter}
+The CULane adapter loads contiguous windows and genuine lane masks. CULane does not supply drivable-area ground truth, so the implementation creates a geometric proxy from lane-mask extents. CULane drivable results must therefore be labelled as proxy results or omitted.
+
+\subsection{Recommended real-data plan}
+Use CULane or VIL-100 for real temporal lane evaluation. Use BDD100K or another dataset with valid lane and drivable annotations for genuine multi-task evaluation. Investigate SHIFT, CaRS, or another validated transition dataset for changing-weather evaluation. If an Indian-road test set is collected, document consent, privacy handling, annotation rules, and route-level splitting.
+
+\subsection{Splitting rules}
+Split complete videos, routes, or scenes before creating windows. Never distribute adjacent frames from a single video across training and testing. Apply identical geometric transforms to all frames and masks in a sequence. Keep an untouched real test set when synthetic weather augmentation is used.
+
+\section{Training Procedure}
+
+The training implementation is in \path{python_pipeline/train.py}. It supports synthetic data and CULane, AdamW, cosine annealing, optional CUDA mixed precision, periodic validation, and checkpoint saving.
+
+The paper must report:
+\begin{itemize}
+\item Dataset versions, counts, and class distributions.
+\item Video-level split definitions.
+\item Resolution, sequence length, batch size, optimizer, learning rate, weight decay, epochs, and scheduler.
+\item Random seed and number of repeated runs.
+\item GPU, CPU, RAM, CUDA, PyTorch, and Python versions.
+\item Augmentation parameters and transition construction procedure.
+\item Checkpoint-selection rule.
+\end{itemize}
+
+The repository currently lacks completed logs, checkpoints, seeds, and hardware records.
+
+\section{Evaluation Metrics}
+
+\subsection{Segmentation metrics}
+Report lane precision, recall, F1, and foreground IoU. Report drivable-area mean IoU and, where possible, boundary F1. Define whether scores are macro-averaged per frame, per sequence, or over all pixels.
+
+\subsection{Cross-task inconsistency}
+The implemented Cross-Task Inconsistency Ratio is:
+\[
+CTIR=\frac{|L\cap\overline{D}|}{|L|}\times100,
+\]
+where $L$ is the predicted lane mask and $D$ is the predicted drivable mask. Report the denominator policy when no lane pixels are predicted. A stronger study should also compare consistency against a validated ground-truth corridor.
+
+\subsection{Temporal flicker}
+The current metric is pixelwise XOR between adjacent lane masks:
+\[
+Flicker=\frac{|M_t\oplus M_{t-1}|}{|P|}\times100.
+\]
+Because camera motion changes pixel positions, the final metric should use optical-flow or ego-motion alignment if available.
+
+\subsection{Reliability and efficiency}
+Add Expected Calibration Error, reliability diagrams, precision-recall curves, FPS, per-frame latency, parameter count, FLOPs, peak memory, and energy or power measurements when possible.
+
+\section{Required Baselines and Ablations}
+
+The minimum comparison is:
+\begin{longtable}{p{0.36\textwidth}p{0.49\textwidth}}
+\toprule
+\textbf{Variant} & \textbf{Purpose}\
+\midrule
+Single-frame baseline & Establish the reproducible starting point.\\
+Baseline plus ConvGRU & Isolate temporal feature aggregation.\\
+Baseline plus CTC & Isolate cross-task regularization.\\
+Baseline plus temporal loss & Measure flicker-regularization effect.\\
+Full model & Measure combined performance.\\
+Sequence lengths 1, 3, 4, and 5 & Measure accuracy and computational trade-offs.\\
+Real data versus synthetic augmentation & Test whether synthetic robustness transfers.\\
+\bottomrule
+\end{longtable}
+
+Every variant must use the same test set, preprocessing, evaluation code, and hardware protocol.
+
+\section{Video Inference and Deployment}
+
+The standalone video pipeline in \path{python_pipeline/inference_video.py} reads MP4, AVI, and MOV files, maintains a sliding buffer, runs the model, writes lane and drivable overlays, estimates an approximate lateral offset, and exports CSV telemetry.
+
+The current offset is a demonstration estimate based on an assumed 3.7 m lane width. It is not metric vehicle position without camera calibration, a ground-plane model, and a defined camera coordinate system.
+
+The frontend in \path{src/} is a Vite/React research dashboard. Its browser engine uses heuristics and synthetic telemetry rather than the PyTorch model. Frontend benchmark values must not be reported as experimental results.
+
+\section{Evidence Audit}
+
+\begin{longtable}{p{0.38\textwidth}p{0.45\textwidth}}
+\toprule
+\textbf{Component} & \textbf{Status}\
+\midrule
+React/Vite dashboard & Implemented and separate from Python inference.\\
+CSP-style backbone & Implemented.\\
+FPN & Implemented.\\
+ConvGRU temporal aggregator & Implemented.\\
+Lane segmentation & Implemented.\\
+Drivable segmentation & Implemented.\\
+Object head architecture & Implemented, but not trained.\\
+Cross-task consistency loss & Implemented.\\
+Temporal flicker loss & Implemented in an unaligned form.\\
+Synthetic weather sequences & Implemented.\\
+CULane lane adapter & Implemented; external data required.\\
+Training loop & Implemented.\\
+Evaluation script & Implemented with limited metrics.\\
+Video inference & Implemented.\\
+Lane geometry fitting & Missing.\\
+Confidence calibration & Missing.\\
+Object loss and evaluation & Missing.\\
+Real transition dataset & Missing.\\
+Trained checkpoint and logs & Missing.\\
+Verified numerical results & Missing.\\
+\bottomrule
+\end{longtable}
+
+\section{Claims That Must Be Corrected Before Submission}
+
+The current draft paper reports numerical values such as a 64.2 percent inconsistency reduction, a 13.8 percent worst-case F1 improvement, and 39.8 FPS on an edge GPU. The repository contains no artifacts proving these values. They must be removed or replaced with reproducible measurements.
+
+The draft table reports transition F1 increasing from 64.8 to 81.7, an absolute change of 16.9 points. Its CTIR decreases from 14.8 percent to 4.2 percent, which is approximately a 71.6 percent relative reduction. These values do not match the abstract and their source is undocumented.
+
+Until experiments are run, the paper should describe these as planned evaluation targets, not results.
+
+\section{Limitations}
+
+The expected limitations are:
+\begin{itemize}
+\item Synthetic weather is not equivalent to real weather.
+\item CULane is not an adverse-weather or Indian-road benchmark.
+\item CULane drivable labels in this repository are geometric proxies.
+\item Monocular RGB provides limited metric depth and geometry.
+\item Temporal metrics are not currently motion compensated.
+\item The object-detection branch is not trained.
+\item Confidence is not calibrated.
+\item No real vehicle control or safety validation exists.
+\item No camera calibration is implemented.
+\item The frontend is a heuristic demonstration, not a model benchmark.
+\end{itemize}
+
+\section{End-to-End Publication Checklist}
+
+\begin{enumerate}
+\item Freeze the final research scope: lane plus drivable perception, with objects only if the full branch is completed.
+\item Select datasets with valid labels and document licenses.
+\item Create route- or video-level splits.
+\item Reproduce and save a single-frame baseline.
+\item Train the temporal model with fixed seeds.
+\item Run all ablations and sequence-length comparisons.
+\item Add motion compensation or document its absence.
+\item Measure accuracy, CTIR, flicker, calibration, FPS, latency, parameters, FLOPs, and memory.
+\item Repeat experiments across multiple seeds when possible.
+\item Save checkpoints, logs, configuration files, environment versions, and result tables.
+\item Include qualitative examples where memory helps and where it propagates an old error.
+\item Remove unsupported claims from the manuscript.
+\item Perform a final literature and patent search before asserting novelty.
+\end{enumerate}
+
+\section{Repository Map}
+
+\begin{description}
+\item[\path{paper/main.tex}] Current IEEE-style manuscript draft.
+\item[\path{paper/references.bib}] Bibliography for the current draft.
+\item[\path{python_pipeline/models/backbone.py}] Backbone and FPN.
+\item[\path{python_pipeline/models/multitask_network.py}] Multi-task model and prediction heads.
+\item[\path{python_pipeline/models/temporal_convgru.py}] ConvGRU and spatial temporal gate.
+\item[\path{python_pipeline/losses/consistency_loss.py}] Segmentation, consistency, and flicker losses.
+\item[\path{python_pipeline/data/dataset.py}] Synthetic sequence generator and weather augmentation.
+\item[\path{python_pipeline/data/culane_dataset.py}] CULane sequence adapter.
+\item[\path{python_pipeline/train.py}] Training loop.
+\item[\path{python_pipeline/evaluate.py}] Evaluation metrics and benchmark runner.
+\item[\path{python_pipeline/inference_video.py}] Offline video inference and telemetry export.
+\item[\path{src/}] React research dashboard and browser-side demonstration.
+\item[\path{docs/extracted/final_research_gap_and_project_plan.txt}] Recommended research direction and literature caution.
+\item[\path{docs/extracted/Temporal_Lane_Detection_Project_Report.txt}] Lane-only temporal research plan.
+\item[\path{docs/extracted/Lane_Detection_Prototype_Step_by_Step_Guide.txt}] Prototype implementation and evaluation guide.
+\end{description}
+
+\section{Conclusion}
+
+LumiDrive / RoadSight has a coherent prototype foundation: a lightweight CSP/FPN encoder, ConvGRU temporal aggregation, lane and drivable segmentation heads, consistency losses, synthetic sequence data, CULane support, evaluation utilities, video inference, and a research dashboard. The strongest publishable story is a controlled study of transition-aware temporal stabilization and lane/drivable consistency.
+
+The decisive next step is experimental validation. The paper should not present the current draft numbers as measured results until they are generated from named datasets, fixed splits, saved checkpoints, logged configurations, and repeatable evaluation scripts.
+
+\bibliographystyle{plain}
+\bibliography{paper/references}
+\end{document}

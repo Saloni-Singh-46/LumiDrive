@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LumiDrive / RoadSight Research Project Handbook</title>
+<style>
+@page { size: A4; margin: 18mm; }
+body { font-family: Georgia, serif; color:#202735; line-height:1.45; max-width:900px; margin:auto; }
+h1 { color:#123b52; font-size:28px; margin-bottom:4px; }
+h2 { color:#176b72; border-bottom:1px solid #b7d4d0; padding-bottom:4px; margin-top:28px; }
+h3 { color:#24546a; margin-top:20px; }
+.subtitle { color:#55717a; font-size:16px; }
+.notice { background:#fff4d8; border-left:5px solid #d69d2f; padding:12px 16px; }
+.box { background:#eef7f6; padding:12px 16px; border:1px solid #c7dfdb; }
+table { width:100%; border-collapse:collapse; margin:12px 0; font-size:13px; }
+th { background:#176b72; color:white; text-align:left; }
+th, td { border:1px solid #cbd8da; padding:7px; vertical-align:top; }
+code { font-family: Consolas, monospace; font-size: .9em; }
+li { margin:4px 0; }
+.equation { text-align:center; font-family: Georgia, serif; font-size:17px; margin:14px; }
+.small { color:#5d6c70; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>LumiDrive / RoadSight Research Project Handbook</h1>
+<div class="subtitle">Transition-Aware Cross-Task Consistency for Robust Multi-Task Road Perception under Changing Weather Conditions</div>
+<p class="small">Research and implementation reference | September 2026</p>
+
+<div class="notice"><b>Evidence status:</b> The repository contains a substantial PyTorch prototype, synthetic sequence data, a CULane adapter, training and evaluation scripts, video inference, and a React dashboard. It does not contain trained checkpoints, experiment logs, or verified numerical results. Current manuscript numbers must not be presented as measured results until reproduced.</div>
+
+<h2>1. Project Summary</h2>
+<p>The project studies whether lightweight temporal memory and an explicit cross-task consistency objective can stabilize lane and drivable-area predictions during changing visibility without losing practical inference speed.</p>
+<p>The system accepts forward-facing monocular RGB video and is designed to predict lane segmentation, drivable-area segmentation, and an object-detection branch. The current training path supervises only lane and drivable-area tasks. The browser dashboard is a separate heuristic demonstration and is not connected to the PyTorch model.</p>
+
+<h2>2. Research Problem</h2>
+<p>Lane markings are thin, high-frequency structures that are vulnerable to faded paint, broken markings, shadows, rain, fog, glare, night illumination, water spray, and temporary occlusion. Drivable regions may remain plausible after lane evidence has degraded.</p>
+<ul><li><b>Asynchronous task failure:</b> lane predictions disappear while drivable predictions remain active, creating contradictory outputs.</li><li><b>Temporal flicker:</b> adjacent frames produce rapidly changing masks and unstable lane geometry.</li></ul>
+<p><b>Research question:</b> Can short-term temporal context and lane/drivable consistency reduce these failures during weather transitions?</p>
+<p><b>Scope:</b> monocular RGB perception, lane and drivable segmentation, short temporal windows, video evaluation, consistency metrics, and deployment measurements. The scope excludes direct vehicle control, LiDAR/radar fusion, safety certification, and claims of universal weather robustness.</p>
+
+<h2>3. Research Gap and Literature Position</h2>
+<p>Existing research already covers panoptic multi-task perception, temporal road perception, cross-task relation learning, uncertainty weighting, adverse-weather robustness, and transitional-weather segmentation. The defensible gap is narrower:</p>
+<div class="box"><b>Weather-transition-induced cross-task inconsistency in driving perception, measured with task accuracy, temporal instability, spatial contradiction, worst-condition degradation, and efficiency.</b></div>
+<table><tr><th>Related direction</th><th>What it establishes</th><th>What must not be claimed as new</th></tr><tr><td>YOLOP / related MTL</td><td>Joint object, drivable-area, and lane perception.</td><td>Basic three-task MTL.</td></tr><tr><td>SHIFT</td><td>Continuous weather and domain shifts.</td><td>Continuous-weather data itself.</td></tr><tr><td>Cross-task relation learning</td><td>Explicit relations between road-perception tasks.</td><td>Task relation modeling alone.</td></tr><tr><td>Advent / UW-MTL / RMT-PPAD</td><td>Temporal, uncertainty-aware, and robust MTL approaches.</td><td>Generic temporal or weather-adaptive fusion.</td></tr><tr><td>CaRS / TWFNet / TwinMixing</td><td>Transition weather, forecasting, and lightweight adverse-weather MTL.</td><td>Transitional-weather perception or lightweight MTL alone.</td></table>
+<p>Safe wording: “We propose and evaluate a lightweight temporal multi-task framework for analyzing and reducing cross-task inconsistency during changing visibility.” Avoid “first-ever” claims until a final literature and patent search is complete.</p>
+
+<h2>4. Research Questions and Hypotheses</h2>
+<ol><li>Does temporal memory improve lane IoU and F1 in difficult conditions?</li><li>Does it reduce frame-to-frame lane-mask flicker?</li><li>Does the consistency regularizer reduce lane pixels outside the predicted drivable region?</li><li>Are improvements retained on clear and steady adverse-weather data?</li><li>What are the accuracy, latency, FPS, parameter, and memory costs?</li><li>Can calibrated confidence identify unreliable predictions?</li></ol>
+<p><b>Primary hypothesis:</b> temporal context plus cross-task regularization improves transition robustness and stability over an otherwise identical single-frame baseline.</p>
+
+<h2>5. Implemented Architecture</h2>
+<p>Implementation: <code>python_pipeline/models/</code>.</p>
+<ul><li>Input sequence: <code>[B, T, 3, H, W]</code>, with default <code>T=4</code>.</li><li>Custom lightweight CSP-style convolutional backbone.</li><li>Three-scale FPN with P3, P4, and P5, each using 128 output channels.</li><li>ConvGRU temporal aggregation at P3.</li><li>Spatial gate that fuses current features and hidden memory.</li><li>Lane segmentation head: two classes.</li><li>Drivable-area head: background, main drivable, alternate drivable.</li><li>Object heads at P3, P4, and P5.</li></ul>
+<p>Backbone scales: C3 has 64 channels at 1/8 resolution, C4 has 128 channels at 1/16, and C5 has 256 channels at 1/32.</p>
+<p>ConvGRU recurrence:</p><div class="equation">z<sub>t</sub>, r<sub>t</sub> = sigmoid(Conv([x<sub>t</sub>, h<sub>t-1</sub>]))</div><div class="equation">h<sub>t</sub> = (1 - z<sub>t</sub>) h<sub>t-1</sub> + z<sub>t</sub> tanh(Conv([x<sub>t</sub>, r<sub>t</sub> h<sub>t-1</sub>]))</div>
+<p>The object head is architectural only: object labels, loss, decoder, NMS, and evaluation are missing.</p>
+
+<h2>6. Training Objective</h2>
+<p>Lane loss:</p><div class="equation">L<sub>lane</sub> = L<sub>focal</sub> + L<sub>Dice</sub></div>
+<p>Drivable loss:</p><div class="equation">L<sub>driv</sub> = L<sub>cross-entropy</sub> + L<sub>Dice</sub></div>
+<p>Cross-task consistency penalizes lane probability outside a dilated drivable region:</p><div class="equation">L<sub>CTC</sub> = mean[ M<sub>lane</sub>(p) (1 - Dilate(M<sub>driv</sub>(p), k)) ]</div>
+<p>Temporal flicker loss:</p><div class="equation">L<sub>temp</sub> = mean |M<sub>t</sub>(p) - M<sub>t-1</sub>(p)|</div>
+<p>Implemented total:</p><div class="equation">L<sub>total</sub> = 1.5 L<sub>lane</sub> + 1.0 L<sub>driv</sub> + 0.6 L<sub>CTC</sub> + 0.4 L<sub>temp</sub></div>
+<p>The temporal comparison is unaligned and does not compensate for ego-motion. The paper must either add alignment or state this limitation clearly.</p>
+
+<h2>7. Data</h2>
+<h3>Synthetic sequence data</h3><p><code>python_pipeline/data/dataset.py</code> generates 640 x 360 road scenes with clear, rain, fog, night glare, and a clear-to-rain transition. It generates lane and three-class drivable masks. Defaults are 160 training samples, 40 validation samples, 50 evaluation samples, and four-frame sequences. Synthetic data validates the pipeline but cannot prove real-world weather robustness.</p>
+<h3>CULane adapter</h3><p><code>python_pipeline/data/culane_dataset.py</code> loads contiguous frames and genuine lane masks. CULane has no drivable-area ground truth in this implementation; its drivable target is a geometric proxy and must not be reported as genuine drivable accuracy.</p>
+<h3>Recommended real-data plan</h3><p>Use CULane or VIL-100 for temporal lane evaluation. Use BDD100K or another dataset with valid lane and drivable labels for genuine MTL. Investigate SHIFT, CaRS, or another validated transition dataset for weather-transition evaluation. Split by complete video, route, or scene before creating temporal windows.</p>
+
+<h2>8. Training and Evaluation</h2>
+<p>Training is in <code>python_pipeline/train.py</code>. It uses AdamW, learning rate 1e-3, weight decay 1e-4, batch size 4, cosine annealing, optional CUDA mixed precision, validation every five epochs, and best-checkpoint selection from lane IoU and drivable mIoU.</p>
+<p>Evaluation is in <code>python_pipeline/evaluate.py</code>. Current metrics are lane IoU, lane F1, drivable mIoU, CTIR, and raw pixelwise flicker across overall, clear, rain, fog, night-glare, and transition groups.</p>
+<p>CTIR:</p><div class="equation">CTIR = |predicted lane pixels outside predicted drivable area| / |predicted lane pixels| x 100</div>
+<p>Flicker:</p><div class="equation">Flicker = |M<sub>t</sub> XOR M<sub>t-1</sub>| / |P| x 100</div>
+<p>Missing evaluation components include precision, recall, ECE, reliability diagrams, optical-flow alignment, FPS benchmarking, latency methodology, FLOPs, parameter count, memory, confidence intervals, and repeated seeds.</p>
+
+<h2>9. Required Baselines and Ablations</h2>
+<table><tr><th>Variant</th><th>Purpose</th></tr><tr><td>Single-frame baseline</td><td>Reproducible starting point.</td></tr><tr><td>Baseline + ConvGRU</td><td>Temporal aggregation effect.</td></tr><tr><td>Baseline + CTC</td><td>Cross-task regularization effect.</td></tr><tr><td>Baseline + temporal loss</td><td>Flicker-loss effect.</td></tr><tr><td>Full model</td><td>Combined performance.</td></tr><tr><td>Sequence lengths 1, 3, 4, 5</td><td>Accuracy versus compute trade-off.</td></tr><tr><td>Real versus synthetic augmentation</td><td>Transfer to real conditions.</td></tr></table>
+<p>All variants must use the same test set, preprocessing, evaluation code, and hardware protocol.</p>
+
+<h2>10. Video Inference and Frontend</h2>
+<p><code>python_pipeline/inference_video.py</code> reads MP4, AVI, and MOV files, maintains a sliding buffer, runs the model, writes lane and drivable overlays, estimates approximate lateral offset, and exports CSV telemetry. The offset assumes a 3.7 m lane width and is not metric without camera calibration.</p>
+<p>The Vite/React application in <code>src/</code> provides architecture exploration, benchmark views, telemetry graphs, paper viewing, synthetic scenarios, upload, and webcam controls. Its browser engine uses heuristic image analysis and synthetic telemetry. It is a demonstration layer, not a PyTorch benchmark.</p>
+
+<h2>11. Evidence Audit</h2>
+<table><tr><th>Component</th><th>Status</th></tr><tr><td>Backbone, FPN, ConvGRU</td><td>Implemented.</td></tr><tr><td>Lane and drivable heads</td><td>Implemented.</td></tr><tr><td>Object head</td><td>Implemented architecturally; not trained.</td></tr><tr><td>Consistency and flicker losses</td><td>Implemented; flicker is unaligned.</td></tr><tr><td>Synthetic weather data</td><td>Implemented.</td></tr><tr><td>CULane adapter</td><td>Implemented; external data required.</td></tr><tr><td>Training and evaluation</td><td>Implemented, limited.</td></tr><tr><td>Video inference</td><td>Implemented.</td></tr><tr><td>Geometry fitting and confidence calibration</td><td>Missing.</td></tr><tr><td>Real transition dataset, checkpoints, logs</td><td>Missing.</td></tr><tr><td>Verified numerical results</td><td>Missing.</td></tr></table>
+
+<h2>12. Publication Warnings</h2>
+<p>The current manuscript reports 64.2% inconsistency reduction, +13.8% worst-case F1, and 39.8 FPS on an edge GPU, but the repository contains no artifacts proving these numbers. The manuscript table reports transition F1 increasing from 64.8 to 81.7, an absolute change of 16.9 points, and CTIR decreasing from 14.8% to 4.2%, approximately a 71.6% relative reduction. These figures conflict and their origin is undocumented.</p>
+<p>Until experiments are run, all such values must be removed or labelled as targets. The paper must not claim trained object perception, calibrated reliability, real-weather robustness, or safety certification without evidence.</p>
+
+<h2>13. Limitations</h2>
+<ul><li>Synthetic weather is not equivalent to real weather.</li><li>CULane is not an adverse-weather or Indian-road benchmark.</li><li>CULane drivable labels are proxies.</li><li>Monocular RGB has depth and geometry ambiguity.</li><li>Temporal metrics are not motion compensated.</li><li>Object detection is not trained.</li><li>Confidence is not calibrated.</li><li>No real vehicle control or safety validation exists.</li><li>No camera calibration is implemented.</li><li>The frontend is heuristic and separate from PyTorch inference.</li><li>No trained checkpoint or experiment log is included.</li></ul>
+
+<h2>14. Publication Checklist</h2>
+<ol><li>Freeze the final scope and decide whether objects are included.</li><li>Select valid datasets and document licenses.</li><li>Create video-level or route-level splits.</li><li>Reproduce a single-frame baseline.</li><li>Train temporal and consistency variants with fixed seeds.</li><li>Run all ablations and sequence-length tests.</li><li>Add motion compensation or document its absence.</li><li>Measure accuracy, CTIR, flicker, calibration, FPS, latency, FLOPs, parameters, and memory.</li><li>Save checkpoints, logs, configurations, environment versions, and result tables.</li><li>Include qualitative success and failure cases.</li><li>Remove unsupported claims.</li><li>Perform the final literature and patent search.</li></ol>
+
+<h2>15. Repository Map</h2>
+<ul><li><code>paper/main.tex</code>: current IEEE manuscript draft.</li><li><code>paper/references.bib</code>: bibliography.</li><li><code>python_pipeline/models/</code>: backbone, FPN, model, and ConvGRU.</li><li><code>python_pipeline/losses/consistency_loss.py</code>: losses.</li><li><code>python_pipeline/data/</code>: synthetic and CULane data.</li><li><code>python_pipeline/train.py</code>: training.</li><li><code>python_pipeline/evaluate.py</code>: evaluation.</li><li><code>python_pipeline/inference_video.py</code>: video inference.</li><li><code>src/</code>: React dashboard.</li><li><code>docs/extracted/</code>: research gap, temporal lane plan, and implementation guide.</li></ul>
+
+<h2>Conclusion</h2>
+<p>LumiDrive / RoadSight has a coherent prototype foundation. Its strongest publishable story is a controlled study of temporal stabilization and lane/drivable consistency under changing visibility. The decisive next step is experimental validation using named datasets, fixed splits, saved checkpoints, logged configurations, and repeatable evaluation.</p>
+</body>
+</html>

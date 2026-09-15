@@ -1,0 +1,30 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node and frontend build output
+node_modules/
+dist/
+.vite/
+
+# Local training outputs and downloaded datasets
+weights/
+checkpoints/
+logs/
+python_pipeline/data/*/
+*.pth
+*.pt
+*.ckpt
+
+# Notebook and tool-generated state
+.ipynb_checkpoints/
+.vscode/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp

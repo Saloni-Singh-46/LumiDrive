@@ -1,0 +1,254 @@
+=== PAGE 1 ===
+Final Research Gap & Project Plan
+ Beyond Lane Detection: Multi-Task Road Perception under Adverse Weather Conditions
+Research status: targeted literature verification through September 5, 2026. This report is designed to help the team
+choose a defensible research direction, not to claim absolute novelty without a final database/patent check.
+1. Executive conclusion
+ The safest research direction is: weather-transition-aware, task-consistent multi-task road perception with
+a focus on lane detection and drivable-area segmentation, optionally adding object detection if the dataset
+supports it. The core research question is not simply “can we make another MTL network?” but: how does a
+changing weather condition affect the consistency and reliability of multiple road-perception tasks
+over time, and can a lightweight temporal/transition-aware mechanism reduce those failures?
+This direction is deliberately narrower than “temporal adverse-weather MTL.” A 2025 framework called Advent already
+uses temporal correlations for adverse-weather robustness, while several 2025–2026 works already cover
+adverse-weather multi-task perception, uncertainty weighting, lightweight MTL, and transitional-weather segmentation.
+Therefore, those ideas alone should NOT be presented as the novelty.
+2. What the literature already covers
+ Work
+What it already solves
+Do NOT claim this as your gap
+YOLOP / YOLOPv2 / HybridNets
+Joint object detection + drivable area + lane perception; real-time panoptic driving perception.
+Basic 3-task MTL.
+Cross-task relation mining (2023)
+Explicitly models relations among vehicle detection, drivable area and lane detection; improves consistency.
+“We use cross-task relations/attention.”
+SHIFT (CVPR 2022)
+Continuous domain shifts in rain/fog/cloudiness/time; long sequences; many perception tasks.
+“No dataset has continuous weather shifts.”
+Dai & Wang (2025)
+Object + lane + drivable MTL under adverse weather + unsupervised domain adaptation.
+“First MTL model for adverse weather.”
+RLSNet (2025)
+Drivable + lane + scene identification; lane/scene cues refine drivable area; real-time.
+“Task interaction improves drivable area.”
+RMT-PPAD (2025)
+Object + drivable + lane; shared/task-specific feature gating; adaptive segmentation; negative-transfer mitigation.
+“Adaptive shared/task-specific fusion is new.”
+UW-MTL (2025)
+Uncertainty-weighted multi-task traffic-scene understanding; spatiotemporal + multimodal.
+“Uncertainty weighting for robust MTL.”
+UniPerception (2026)
+Unified object/lane/drivable perception under inclement weather using CNN+Transformer and multi-stage training.
+“Unified MTL under bad weather is new.”
+RobuMTL (2026)
+Weather-robust MTL using perturbation-conditioned LoRA experts; mixed-weather robustness.
+“Weather-adaptive MTL is completely unexplored.”
+CaRS (WACV 2026)
+Transitional-weather segmentation; causal intervention; semantic + instance segmentation; TWDS16.
+“Transitional weather segmentation is new.”
+TWFNet (2026)
+Spatiotemporal forecasting of transitional weather; AIWFD6/SHIFT.
+“No work studies transitional weather sequences.”
+TwinMixing (2026)
+Lightweight lane + drivable MTL; evaluates rain/fog/snow/night; reports adverse-condition degradation.
+“Lightweight lane+drivable MTL is new.”
+Road-anomaly MTL (2026)
+Indian-road object/anomaly + drivable + lane unified perception.
+“Adding road anomalies to MTL is new.”
+3. The final gap we recommend
+ Gap A — Weather-transition-induced cross-task inconsistency in road perception.
+The literature now has separate pieces: panoptic MTL, cross-task relation learning, temporal
+adverse-weather robustness, transitional-weather forecasting/segmentation, and uncertainty-aware MTL.
+What remains much less directly addressed is a driving-specific study of how lane, drivable-area and
+(where possible) object predictions become mutually inconsistent as weather changes over a
+sequence, together with a lightweight mechanism that explicitly reduces this transition-induced
+inconsistency.
+Example failure: during a rain transition, the lane prediction may flicker or disappear while the drivable-area mask still
+looks plausible. A model can therefore obtain a reasonable average mIoU while producing temporally unstable and
+semantically contradictory outputs. Existing papers often report per-task accuracy/FPS; the proposed study should add
+transition-aware reliability measurements and analyze failure coupling between tasks.
+
+
+=== PAGE 2 ===
+4. What should be the actual contribution?
+Recommended contribution package:
+ C1. Transition-aware evaluation protocol: evaluate the same model at different points/intensities of a weather
+transition (e.g., clear→rain, rain→fog) rather than reporting only one static weather label.
+ C2. Cross-task consistency metrics: measure whether lane and drivable predictions agree spatially and remain
+stable between adjacent frames. For example, measure lane-boundary stability, drivable-mask flicker, and
+lane-inside-drivable consistency.
+ C3. Lightweight transition-aware temporal module: use a short history of frames/features and a small gate/adapter
+whose purpose is to stabilize road structure during changing visibility. This is more defensible than claiming generic
+“temporal fusion” as novel.
+ C4. Ablation study: baseline MTL vs. temporal module vs. transition-aware consistency objective, with clear-weather,
+steady adverse-weather, and transitional-weather test splits.
+ C5. Reliability analysis: report not only average accuracy but also worst-condition degradation, temporal
+instability/flicker and per-task failure correlation.
+5. Why this is safer than our earlier ideas
+ Idea
+Decision
+Reason
+Generic temporal fusion
+REJECT as novelty
+Advent, temporal lane work and streaming perception already cover temporal modeling.
+Weather-conditioned feature fusion
+REJECT as standalone novelty
+Adaptive weather/task experts and gating already exist.
+Uncertainty-weighted MTL
+REJECT as standalone novelty
+UW-MTL and other uncertainty work already exist.
+Road anomaly + lane + drivable
+REJECT as novelty
+A 2026 Indian-road paper already targets this combination.
+LLM/VLM for lane reasoning
+REJECT for current project
+Interesting, but much harder and several lane-language/VLM directions already exist.
+LiDAR-camera fusion
+REJECT for current student project
+Strong literature; expensive/hardware-heavy and not necessary for your topic.
+Transition-aware cross-task consistency
+BEST CANDIDATE
+Combines a specific driving problem with measurable temporal/task-consistency behavior; targeted search did not reveal an exact same formulation.
+
+
+=== PAGE 3 ===
+6. Project implementation plan
+Step 1 — Baseline
+Implement or reproduce a known MTL baseline such as YOLOP/YOLOPX/RMT-PPAD-style object + lane + drivable
+perception. Do not modify it initially.
+Step 2 — Dataset
+Start with BDD100K for the three-task baseline. For transition experiments, investigate sequence-level weather labels
+and/or a validated synthetic transition source. SHIFT is useful for continuous weather/domain-shift research but does not
+directly provide the exact BDD100K-style lane task.
+Step 3 — Failure audit
+Create subsets: clear/day, night, rain, fog, snow where available, and transition sequences. Measure which task fails first
+and how failures co-occur.
+Step 4 — Consistency metrics
+Implement frame-to-frame mask stability and cross-task consistency metrics. This can become a genuine research
+contribution even before a complex new network is added.
+Step 5 — Temporal module
+Add a small temporal feature aggregator over 2–4 neighboring frames. Keep the baseline backbone/head mostly
+unchanged so the contribution is easy to isolate.
+Step 6 — Transition-aware objective
+Add a loss/regularizer that penalizes unstable lane/drivable predictions across adjacent frames and penalizes physically
+implausible disagreement between lane and drivable predictions.
+Step 7 — Ablation
+Compare baseline, temporal-only, consistency-only, and temporal+consistency. Also compare static adverse weather
+against transition weather.
+Step 8 — Deployment
+Measure FPS, latency, parameter count and GPU memory. The target should remain real-time or near-real-time.
+7. Suggested experimental table
+Model
+Clear
+Steady rain/fog
+Weather transition
+Lane stability
+Drivable stability
+FPS
+Baseline MTL
+✓
+✓
+✓
+measure
+measure
+measure
++ temporal
+✓
+✓
+✓
+measure
+measure
+measure
++ consistency loss
+✓
+✓
+✓
+measure
+measure
+measure
++ temporal + consistency (ours)
+✓
+✓
+✓
+target best
+target best
+target real-time
+8. Metrics to report
+ Object detection: mAP50, recall (if object task is included).
+ Drivable area: mIoU, boundary/F1 if feasible.
+ Lane: IoU/accuracy plus a temporal stability metric.
+ Temporal stability: frame-to-frame prediction change after compensating for ego-motion if possible; otherwise use a
+simpler aligned-pixel flicker metric.
+ Cross-task consistency: percentage of predicted lane pixels that lie inside the predicted drivable region, plus a
+consistency error for physically contradictory outputs.
+ Robustness: relative performance drop from clear → steady adverse → transition.
+
+
+=== PAGE 4 ===
+ Efficiency: FPS, latency, parameters and FLOPs.
+9. Research-paper storyline
+ Problem: Static weather benchmarks and average task scores can hide unstable perception during changing
+weather.
+Observation: lane, drivable-area and object predictions do not necessarily degrade at the same rate or
+remain mutually consistent.
+Gap: insufficient driving-specific analysis and mitigation of transition-induced cross-task inconsistency.
+Method: lightweight temporal context + transition-aware cross-task consistency objective.
+Evaluation: static weather versus transition weather, per-task accuracy + stability + consistency + latency.
+Expected contribution: a reproducible evaluation protocol and a lightweight method that improves reliability
+without replacing the entire MTL backbone.
+
+
+=== PAGE 5 ===
+10. Key literature used to rule out duplicate gaps
+YOLOP — Wu et al., 2022. Panoptic driving perception: object detection, drivable area and lane detection.
+SHIFT — Sun et al., CVPR 2022. Continuous weather/domain shifts, long sequences, multi-task annotations.
+Learning cross-task relations — Song & Zhao, 2023. Explicit cross-task relation mining for object/drivable/lane
+perception.
+Computer Vision based Panoptic Driving Perception under Various Weather Conditions — 2024. Compares MTL
+panoptic models across weather conditions.
+End2end vehicle multitask perception in adverse weather — Dai & Wang, 2025. Three-task MTL + unsupervised
+domain adaptation for adverse weather.
+RLSNet — You et al., 2025. Drivable + lane + scene; mutual task guidance and real-time inference.
+RMT-PPAD — Wang et al., 2025. Three-task MTL; GCA for shared/task-specific feature fusion and negative-transfer
+mitigation.
+Advent — Kou et al., 2025. Temporal correlation for adverse-weather-independent perception.
+UW-MTL — Wan et al., 2025. Uncertainty-weighted robust traffic-scene MTL with spatiotemporal/multimodal inputs.
+UniPerception — Li et al., 2026. Unified object/lane/drivable perception under inclement weather.
+RobuMTL — Shaffee & Reda, 2026. Weather-robust MTL with perturbation-conditioned LoRA experts.
+TWFNet — Kondapally et al., 2026. Forecasting transitional weather from sequences; AIWFD6/SHIFT.
+CaRS — Kondapally et al., WACV 2026. Transitional-weather semantic + instance segmentation; TWDS16.
+TwinMixing — Do et al., 2026. Lightweight lane + drivable MTL with adverse-condition evaluation.
+Safety-aware unified MTL for Indian roads — Selvarajan et al., 2026. Road anomaly + drivable + lane perception for
+Indian road conditions.
+11. Important novelty warning
+Do not write “this is the first method…” in the paper yet. The correct wording at this stage is: “Our targeted literature
+review did not identify an existing study that combines these exact elements in the same driving setting.” Before
+submission, run one final systematic search in IEEE Xplore, ACM Digital Library, ScienceDirect, Springer, CVF Open
+Access, arXiv and Google Scholar using combinations of: transitional weather + multi-task perception; weather transition
++ lane + drivable; temporal consistency + panoptic driving; cross-task consistency + adverse weather + autonomous
+driving; weather-aware MTL + driving. Also check papers published after this report date.
+12. Final recommendation to the team
+ Lock the research direction as:
+“Transition-Aware Cross-Task Consistency for Robust Multi-Task Road Perception under Changing Weather
+Conditions.”
+For the first project version, keep it practical: lane + drivable-area segmentation can be the minimum viable
+system. If your chosen dataset and compute budget allow, extend it to object detection so the project
+matches full panoptic road perception. The paper should emphasize failure analysis + transition-aware
+consistency + lightweight temporal stabilization, rather than inventing yet another large backbone.
+Sources / verification links
+ScienceDirect — End2end vehicle multitask perception in adverse weather: https://www.sciencedirect.com/science/article/pii/S0921889025000314
+arXiv — RMT-PPAD: https://arxiv.org/abs/2508.06529
+arXiv — Advent: https://arxiv.org/abs/2508.01583
+ScienceDirect — TWFNet: https://www.sciencedirect.com/science/article/pii/S0031320325008143
+CVF Open Access — CaRS: https://openaccess.thecvf.com/content/WACV2026/papers/Madhavi_CaRS_A_Causal_Intervention_Segmentation_Fr
+amework_and_Benchmark_Dataset_for_WACV_2026_paper.pdf
+
+
+=== PAGE 6 ===
+CVF Open Access — SHIFT: https://openaccess.thecvf.com/content/CVPR2022/papers/Sun_SHIFT_A_Synthetic_Driving_Dataset_for_Continuous
+_Multi-Task_Domain_Adaptation_CVPR_2022_paper.pdf
+ScienceDirect — TwinMixing: https://www.sciencedirect.com/science/article/pii/S2590123026010194
+ScienceDirect — RLSNet: https://www.sciencedirect.com/science/article/pii/S095219762501783X
+Scientific Reports — UW-MTL: https://www.nature.com/articles/s41598-025-24838-3
+Scientific Reports — Indian-road safety-aware MTL: https://www.nature.com/articles/s41598-026-60419-8
