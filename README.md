@@ -127,6 +127,28 @@ npm run build     # Type-check and create a production build
 npm run preview   # Preview the production build locally
 ```
 
+### Connect the dashboard to the trained model
+
+The dashboard's uploaded-image and webcam analysis calls the local PyTorch API at `http://127.0.0.1:8000`. Run it in a second terminal from the repository root:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\python.exe python_pipeline\model_server.py --device cpu
+```
+
+Then start the dashboard in the first terminal with `npm run dev` and open the Vite URL. For GPU inference, use `--device cuda` when the installed PyTorch build supports CUDA. The API exposes `GET /health` and `POST /analyze`.
+
+The default checkpoint path is `research_graphs_colab/lumidrive_best_model.pth`. That checkpoint was produced by the Colab architecture, so `python_pipeline/models/checkpoint_model.py` is intentionally kept as a compatibility model for loading it. The checkpoint is ignored by Git and must exist locally; it is not downloaded by `npm install`.
+
+To use a different API host or port in the Vite frontend, set `VITE_MODEL_API_URL` before starting Vite:
+
+```powershell
+$env:VITE_MODEL_API_URL = 'http://127.0.0.1:8000'
+npm run dev
+```
+
+The regular Python video command remains available for offline MP4/AVI/MOV processing. The local API is the bridge used by the interactive React upload and webcam experience.
+
 ## Quick start: Python pipeline
 
 Requirements: Python 3.10+ is recommended. A CUDA-enabled PyTorch installation is optional but useful for training. OpenCV and the remaining dependencies are listed in `python_pipeline/requirements.txt`.

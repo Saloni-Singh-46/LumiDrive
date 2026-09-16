@@ -29,9 +29,9 @@ export interface CVAnalysisResult {
 }
 
 /**
- * Perform real-time client-side computer vision perception on an HTML image or canvas
+ * Legacy browser-only analysis retained as a fallback/reference implementation.
  */
-export async function analyzeRoadImage(imageElement: HTMLImageElement): Promise<CVAnalysisResult> {
+async function analyzeRoadImageHeuristic(imageElement: HTMLImageElement): Promise<CVAnalysisResult> {
   const startTime = performance.now();
   
   const width = Math.min(imageElement.naturalWidth || imageElement.width || 640, 640);
@@ -283,6 +283,42 @@ export async function analyzeRoadImage(imageElement: HTMLImageElement): Promise<
     analyzedImageWidth: width,
     analyzedImageHeight: height
   };
+}
+
+const MODEL_API_URL = import.meta.env.VITE_MODEL_API_URL || 'http://127.0.0.1:8000';
+
+/** Send a frame to the local PyTorch inference service. */
+export async function analyzeRoadImage(imageElement: HTMLImageElement): Promise<CVAnalysisResult> {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.min(imageElement.naturalWidth || imageElement.width || 640, 640);
+  canvas.height = Math.min(imageElement.naturalHeight || imageElement.height || 360, 360);
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Could not obtain canvas 2D rendering context');
+  }
+
+  context.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+  const imageBlob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob);
+      else reject(new Error('Could not encode image for model inference'));
+    }, 'image/jpeg', 0.82);
+  });
+
+  const formData = new FormData();
+  formData.append('image', imageBlob, 'frame.jpg');
+  const response = await fetch(`${MODEL_API_URL}/analyze`, {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Model API error (${response.status}): ${detail}`);
+  }
+
+  return response.json() as Promise<CVAnalysisResult>;
 }
 
 /**
